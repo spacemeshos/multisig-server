@@ -68,7 +68,7 @@ impl Handler<SetConfig> for Server {
 /////////////////////////////////////////////
 
 #[message(result = "Result<()>")]
-pub(crate) struct StoreMessage(StoreMessageRequest);
+pub(crate) struct StoreMessage(pub(crate) StoreMessageRequest);
 
 /// Set server config
 #[async_trait::async_trait]
@@ -78,11 +78,11 @@ impl Handler<StoreMessage> for Server {
         let user_msg = msg
             .0
             .user_message
-            .ok_or_else(|| anyhow!("missing user message"))?;
+            .ok_or_else(|| anyhow!("invalid input: missing user message"))?;
 
         let address = user_msg.address;
         if address.is_empty() || address.len() > MAX_ADDRESS_SIZE_BYTES {
-            bail!("invalid address size")
+            bail!("invalid input: address size failed validation")
         }
 
         // todo: ensure address != ALL_ADDRESSES_KEY here
@@ -92,11 +92,11 @@ impl Handler<StoreMessage> for Server {
 
         let tx_data = user_msg.transaction_data;
         if tx_data.is_empty() || tx_data.len() > MAX_TX_DATA_SIZE_BYTES {
-            bail!("invalid transaction data")
+            bail!("invalid input: transaction data failed validation")
         }
 
         // input data is valid - store it
-
+        // we store the tx_data in a vector indexed by address
         if let Some(db) = self.db.as_ref() {
             match db.get(address.clone()) {
                 Ok(Some(data)) => {
@@ -116,7 +116,7 @@ impl Handler<StoreMessage> for Server {
                     bail!("internal data error")
                 }
             }
-            // Add address (e.g. vault's address) to global hashset. Used to prune old messages
+            // Add address (e.g. vault's address) to global addresses hashset. Used to prune old messages from the db.
             match db.get(ALL_ADDRESSES_KEY) {
                 Ok(Some(data)) => {
                     let mut addresses: HashSet<Vec<u8>> = bincode::deserialize(data.as_ref())?;
@@ -136,7 +136,8 @@ impl Handler<StoreMessage> for Server {
                 }
             }
         } else {
-            bail!("internal error - db is none")
+            error!("internal state error - db is none");
+            bail!("internal data error")
         }
 
         Ok(())

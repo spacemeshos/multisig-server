@@ -1,10 +1,12 @@
 use crate::api::api::multi_sig_service_server::MultiSigService;
 
+use crate::server::{Server, StoreMessage};
 use anyhow::Result;
 use api::api::{
     GetMessagesRequest, GetMessagesResponse, StoreMessageRequest, StoreMessageResponse,
 };
 use tonic::{Request, Response, Status};
+use xactor::Service;
 // use xactor::*;
 
 #[derive(Debug)]
@@ -23,9 +25,19 @@ impl GrpcService {}
 impl MultiSigService for GrpcService {
     async fn store_message(
         &self,
-        _request: Request<StoreMessageRequest>,
+        request: Request<StoreMessageRequest>,
     ) -> Result<Response<StoreMessageResponse>, Status> {
-        todo!()
+        let server = Server::from_registry()
+            .await
+            .map_err(|e| Status::internal(format!("internal error: {}", e)))?;
+
+        let _ = server
+            .call(StoreMessage(request.into_inner()))
+            .await
+            .map_err(|e| Status::internal(format!("internal call error: {}", e)))?
+            .map_err(|e| Status::internal(format!("error: {}", e)))?;
+
+        Ok(Response::new(StoreMessageResponse {}))
     }
 
     async fn get_messages(
