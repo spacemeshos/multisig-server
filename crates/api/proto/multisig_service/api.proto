@@ -22,9 +22,10 @@ enum TransactionType {
 }
 
 message UserMessage {
-  bytes address = 1; // vault address, and in future smart contract address or a multi-sig accounts db address.
-  TransactionType transaction_type = 2; // one of the supported types so receiver knows how to deserlize the binary data
-  bytes transaction_data = 3; // binary protobuf signed transaction data
+  uint64 created = 1; // timestamp, seconds sinc epoch
+  bytes address = 2; // vault address, and in future smart contract address or a multi-sig accounts db address.
+  TransactionType transaction_type = 3; // one of the supported types so receiver knows how to deserlize the binary data
+  bytes transaction_data = 4; // binary protobuf signed transaction data
 }
 
 message StoreMessageRequest {

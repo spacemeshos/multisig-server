@@ -47,12 +47,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
     start_server(config).await?;
 
-    // block app until it is terminated
+    // block app process until it is terminated
     signal::ctrl_c()
         .await
         .expect("failed to listen for ctrl-c signal");
 
-    info!("got signal - terminating app");
+    info!("got signal - terminating server");
     Ok(())
 }
 
