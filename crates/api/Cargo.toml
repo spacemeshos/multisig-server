@@ -1,0 +1,17 @@
+[package]
+name = "api"
+version = "0.1.0"
+authors = ["avive <avive@spacemesh.io>"]
+description = "Spacemesh multisig service api"
+edition = "2018"
+
+[build-dependencies]
+tonic-build = "0.4.2"
+
+[dependencies]
+prost = "0.7"
+tonic = "0.4.2"
+chrono = "*"
+hex = "*"
+anyhow = "*"
+

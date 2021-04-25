@@ -1,0 +1,46 @@
+syntax = "proto3";
+package api;
+
+service MultiSigService {
+  // Store a multi-sig message in the service
+  rpc StoreMessage(StoreMessageRequest) returns (StoreMessageResponse);
+  // Get multi-sig message for a source address
+  rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+}
+
+enum TransactionType {
+  // Withdraw request from a vault contract
+  VAULT_WITHDRAW = 0;
+  // Change a vault contract daily spending account
+  VAULT_CHANGE_DAILY_SPEND_ACCOUNT = 1;
+  // Change a vault contract daily spending amount
+  VAULT_CHANGE_DAILY_SPEND_AMOUNT = 2;
+  // a request to spend from a multi-sig account (no smart contract)
+  COIN_SPEND = 3;
+
+  // new supported transaction types will be added here in a backward compatible manner
+}
+
+message UserMessage {
+  bytes source_address = 1; // vault address, and in future smart contract address or a multi-sig accounts db address.
+  TransactionType transaction_type = 2; // one of the supported types so receiver knows how to deserlize the binary data
+  bytes transaction_data = 3; // binary protobuf signed transaction data
+}
+
+message StoreMessageRequest {
+  UserMessage user_message = 1;
+}
+
+message StoreMessageResponse {
+  // empty response with 0 status code means success. Non-zero grpc status code indicates an error
+}
+
+// a request to get all message for a contract address
+message GetMessagesRequest {
+  bytes source_address = 1;
+}
+
+message GetMessagesResponse {
+  // returns all stored user messages for the source address (including user's own messages)
+  repeated UserMessage user_messages = 2;
+}
