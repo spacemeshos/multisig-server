@@ -2,7 +2,7 @@
 pub struct UserMessage {
     /// vault address, and in future smart contract address or a multi-sig accounts db address.
     #[prost(bytes = "vec", tag = "1")]
-    pub source_address: ::prost::alloc::vec::Vec<u8>,
+    pub address: ::prost::alloc::vec::Vec<u8>,
     /// one of the supported types so receiver knows how to deserlize the binary data
     #[prost(enumeration = "TransactionType", tag = "2")]
     pub transaction_type: i32,
@@ -18,11 +18,11 @@ pub struct StoreMessageRequest {
 /// empty response with 0 status code means success. Non-zero grpc status code indicates an error
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StoreMessageResponse {}
-/// a request to get all message for a contract address
+/// a request to get all message for an address (e.g. vault contract app instance or multichain account)
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetMessagesRequest {
     #[prost(bytes = "vec", tag = "1")]
-    pub source_address: ::prost::alloc::vec::Vec<u8>,
+    pub address: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetMessagesResponse {

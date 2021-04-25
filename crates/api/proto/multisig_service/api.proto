@@ -22,7 +22,7 @@ enum TransactionType {
 }
 
 message UserMessage {
-  bytes source_address = 1; // vault address, and in future smart contract address or a multi-sig accounts db address.
+  bytes address = 1; // vault address, and in future smart contract address or a multi-sig accounts db address.
   TransactionType transaction_type = 2; // one of the supported types so receiver knows how to deserlize the binary data
   bytes transaction_data = 3; // binary protobuf signed transaction data
 }
@@ -35,9 +35,9 @@ message StoreMessageResponse {
   // empty response with 0 status code means success. Non-zero grpc status code indicates an error
 }
 
-// a request to get all message for a contract address
+// a request to get all message for an address (e.g. vault contract app instance or multichain account)
 message GetMessagesRequest {
-  bytes source_address = 1;
+  bytes address = 1;
 }
 
 message GetMessagesResponse {

@@ -119,8 +119,6 @@ fn init_logging() {
 fn get_default_config() -> config::Config {
     let mut config = Config::default();
     config
-        .set_default("log_file", "./server.log")
-        .unwrap()
         .set_default("port", DEFAULT_GRPC_PORT.to_string())
         .unwrap()
         .set_default("host", DEFAULT_HOST)
