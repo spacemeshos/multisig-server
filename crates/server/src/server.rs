@@ -1,7 +1,7 @@
 use crate::api::api::multi_sig_service_server::MultiSigServiceServer;
 use crate::service::GrpcService;
 use anyhow::{anyhow, bail, Result};
-use api::api::{StoreMessageRequest, UserMessage};
+use api::api::{GetMessagesRequest, StoreMessageRequest, UserMessage};
 use chrono::prelude::*;
 use config::Config;
 use prost::Message;
@@ -44,6 +44,7 @@ impl Default for Server {
         }
     }
 }
+//////////////////////
 
 #[message(result = "Result<(Config)>")]
 pub(crate) struct GetConfig;
@@ -57,6 +58,43 @@ impl Handler<GetConfig> for Server {
 }
 
 //////////////////
+
+#[message(result = "Result<Vec<UserMessage>>")]
+pub(crate) struct GetMessages(pub(crate) GetMessagesRequest);
+
+/// Get all messages for an address
+#[async_trait::async_trait]
+impl Handler<GetMessages> for Server {
+    async fn handle(
+        &mut self,
+        _ctx: &mut Context<Self>,
+        msg: GetMessages,
+    ) -> Result<Vec<UserMessage>> {
+        let address = msg.0.address;
+
+        if let Some(db) = self.db.as_ref() {
+            match db.get(address) {
+                Ok(Some(data)) => {
+                    let messages: Vec<Vec<u8>> = bincode::deserialize(data.as_ref())?;
+                    let mut res: Vec<UserMessage> = vec![];
+                    for m in messages {
+                        res.push(UserMessage::decode(m.as_ref())?);
+                    }
+                    Ok(res)
+                }
+                Ok(None) => Ok(vec![]),
+                Err(e) => {
+                    error!("failed db get: {}", e);
+                    bail!("internal data error")
+                }
+            }
+        } else {
+            error!("internal state error - db is none");
+            bail!("internal data error")
+        }
+    }
+}
+//////////////////////
 
 #[message(result = "Result<()>")]
 pub(crate) struct SetConfig(pub(crate) Config);

@@ -1,6 +1,6 @@
 use crate::api::api::multi_sig_service_server::MultiSigService;
 
-use crate::server::{Server, StoreMessage};
+use crate::server::{GetMessages, Server, StoreMessage};
 use anyhow::Result;
 use api::api::{
     GetMessagesRequest, GetMessagesResponse, StoreMessageRequest, StoreMessageResponse,
@@ -42,8 +42,18 @@ impl MultiSigService for GrpcService {
 
     async fn get_messages(
         &self,
-        _request: Request<GetMessagesRequest>,
+        request: Request<GetMessagesRequest>,
     ) -> Result<Response<GetMessagesResponse>, Status> {
-        todo!()
+        let server = Server::from_registry()
+            .await
+            .map_err(|e| Status::internal(format!("internal error: {}", e)))?;
+
+        let user_messages = server
+            .call(GetMessages(request.into_inner()))
+            .await
+            .map_err(|e| Status::internal(format!("internal call error: {}", e)))?
+            .map_err(|e| Status::internal(format!("error: {}", e)))?;
+
+        Ok(Response::new(GetMessagesResponse { user_messages }))
     }
 }
