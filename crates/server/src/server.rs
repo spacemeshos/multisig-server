@@ -1,5 +1,6 @@
 use crate::api::api::multi_sig_service_server::MultiSigServiceServer;
 use crate::service::GrpcService;
+use crate::MSG_RETENTION_DUR_CONFIG_KEY_NAME;
 use anyhow::{anyhow, bail, Result};
 use api::api::{GetMessagesRequest, StoreMessageRequest, UserMessage};
 use chrono::prelude::*;
@@ -13,9 +14,6 @@ const MAX_ADDRESS_SIZE_BYTES: usize = 128;
 const MAX_TX_DATA_SIZE_BYTES: usize = 2048;
 const ALL_ADDRESSES_KEY: &str = "all_addresses";
 const DB_FILE_PATH: &str = "./data.bin";
-
-// todo: make this server configurable
-const KEEP_DURATION_SECS: u64 = 1_814_400; // 21 days in seconds
 
 pub(crate) struct Server {
     config: Config,
@@ -204,6 +202,10 @@ impl Handler<DeleteOldMessages> for Server {
         info!("delete old messages task...");
 
         let now = Utc::now().timestamp() as u64;
+        let retention_duration = self
+            .config
+            .get_int(MSG_RETENTION_DUR_CONFIG_KEY_NAME)
+            .unwrap() as u64;
 
         if let Some(db) = self.db.as_ref() {
             match db.get(ALL_ADDRESSES_KEY) {
@@ -224,7 +226,8 @@ impl Handler<DeleteOldMessages> for Server {
                                         // we can unwrap because we ensured that only UserMessages were inserted previously
                                         let user_msg: UserMessage =
                                             UserMessage::decode(m.as_slice()).unwrap();
-                                        user_msg.created >= now - KEEP_DURATION_SECS
+
+                                        user_msg.created >= now - retention_duration
                                     })
                                     .collect::<Vec<_>>();
 

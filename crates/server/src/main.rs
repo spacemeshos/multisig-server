@@ -22,6 +22,11 @@ mod service;
 const DEFAULT_GRPC_PORT: u32 = 6667;
 const DEFAULT_HOST: &str = "[::1]";
 const DB_CLEANUP_INTERVAL_SECS: u64 = 60 * 60 * 24 * 10;
+const MSG_RETENTION_DURATION: u64 = DB_CLEANUP_INTERVAL_SECS * 2;
+const DB_INTERVAL_CONFIG_KEY_NAME: &str = "db_cleanup_interval";
+const MSG_RETENTION_DUR_CONFIG_KEY_NAME: &str = "msg_retention_duration";
+const PORT_CONFIG_KEY_NAME: &str = "port";
+const HOST_CONFIG_KEY_NAME: &str = "host";
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -67,12 +72,12 @@ async fn start_server(config: Config) -> Result<()> {
 
     server
         .call(StartGrpcService {
-            port: config.get_int("port").unwrap() as u32,
-            host: config.get_str("host").unwrap(),
+            port: config.get_int(PORT_CONFIG_KEY_NAME).unwrap() as u32,
+            host: config.get_str(HOST_CONFIG_KEY_NAME).unwrap(),
         })
         .await??;
 
-    let db_cleanup_interval = config.get_int("db_cleanup_interval").unwrap() as u64;
+    let db_cleanup_interval = config.get_int(DB_INTERVAL_CONFIG_KEY_NAME).unwrap() as u64;
 
     // spawn the db cleanup task on interval
     tokio::spawn(async move {
@@ -114,7 +119,7 @@ fn init_logging() {
             let level_style = buf.default_level_style(record.level());
 
             let now: DateTime<Local> = Local::now();
-            let date_format = format!("{}", now.to_rfc3339(),);
+            let date_format = now.to_rfc3339().to_string();
 
             let mut date_style = buf.style();
             date_style.set_color(Color::Yellow).set_bold(true);
@@ -149,11 +154,19 @@ fn init_logging() {
 fn get_default_config() -> config::Config {
     let mut config = Config::default();
     config
-        .set_default("port", DEFAULT_GRPC_PORT.to_string())
+        .set_default(PORT_CONFIG_KEY_NAME, DEFAULT_GRPC_PORT.to_string())
         .unwrap()
-        .set_default("host", DEFAULT_HOST)
+        .set_default(HOST_CONFIG_KEY_NAME, DEFAULT_HOST)
         .unwrap()
-        .set_default("db_cleanup_interval", DB_CLEANUP_INTERVAL_SECS.to_string())
+        .set_default(
+            DB_INTERVAL_CONFIG_KEY_NAME,
+            DB_CLEANUP_INTERVAL_SECS.to_string(),
+        )
+        .unwrap()
+        .set_default(
+            MSG_RETENTION_DUR_CONFIG_KEY_NAME,
+            MSG_RETENTION_DURATION.to_string(),
+        )
         .unwrap()
         .clone()
 }

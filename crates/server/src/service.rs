@@ -23,6 +23,7 @@ impl GrpcService {}
 
 #[tonic::async_trait]
 impl MultiSigService for GrpcService {
+    /// Stores a user message
     async fn store_message(
         &self,
         request: Request<StoreMessageRequest>,
@@ -40,6 +41,7 @@ impl MultiSigService for GrpcService {
         Ok(Response::new(StoreMessageResponse {}))
     }
 
+    /// Returns stored messages for a provided address
     async fn get_messages(
         &self,
         request: Request<GetMessagesRequest>,
