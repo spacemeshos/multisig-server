@@ -4,14 +4,14 @@ use api::api::{GetMessagesRequest, StoreMessageRequest, UserMessage};
 use chrono::prelude::*;
 use config::Config;
 use prost::Message;
-use rocksdb::DB;
+use rocksdb::{Options, DB};
 use std::collections::HashSet;
 use xactor::*;
 
 const MAX_ADDRESS_SIZE_BYTES: usize = 128;
 const MAX_TX_DATA_SIZE_BYTES: usize = 2048;
 const ALL_ADDRESSES_KEY: &str = "all_addresses";
-const DB_FILE_PATH: &str = "./data.bin";
+const DB_FILE_PATH: &str = "./data_store";
 // new messages with creation time bigger than window relative to server time will be rejected
 const ACCEPTED_MESSAGES_TIME_WINDOW_SECS: i64 = 60 * 60 * 24;
 
@@ -42,7 +42,23 @@ impl Default for Server {
         }
     }
 }
-//////////////////////
+
+//////////////////
+
+#[message(result = "Result<()>")]
+pub(crate) struct DeleteDb;
+
+/// Get the current pos compute config
+#[async_trait::async_trait]
+impl Handler<DeleteDb> for Server {
+    async fn handle(&mut self, _ctx: &mut Context<Self>, _msg: DeleteDb) -> Result<()> {
+        let _ = DB::destroy(&Options::default(), DB_FILE_PATH);
+        let _ = std::fs::remove_dir_all(DB_FILE_PATH);
+        Ok(())
+    }
+}
+
+//////////////////
 
 #[message(result = "Result<(Config)>")]
 pub(crate) struct GetConfig;
@@ -52,6 +68,20 @@ pub(crate) struct GetConfig;
 impl Handler<GetConfig> for Server {
     async fn handle(&mut self, _ctx: &mut Context<Self>, _msg: GetConfig) -> Result<Config> {
         Ok(self.config.clone())
+    }
+}
+
+//////////////////
+
+#[message(result = "Result<()>")]
+pub(crate) struct SetConfig(pub(crate) Config);
+
+/// Set server config
+#[async_trait::async_trait]
+impl Handler<SetConfig> for Server {
+    async fn handle(&mut self, _ctx: &mut Context<Self>, msg: SetConfig) -> Result<()> {
+        self.config = msg.0;
+        Ok(())
     }
 }
 
@@ -90,19 +120,6 @@ impl Handler<GetMessages> for Server {
             error!("internal state error - db is none");
             bail!("internal data error")
         }
-    }
-}
-//////////////////////
-
-#[message(result = "Result<()>")]
-pub(crate) struct SetConfig(pub(crate) Config);
-
-/// Set server config
-#[async_trait::async_trait]
-impl Handler<SetConfig> for Server {
-    async fn handle(&mut self, _ctx: &mut Context<Self>, msg: SetConfig) -> Result<()> {
-        self.config = msg.0;
-        Ok(())
     }
 }
 
@@ -194,7 +211,7 @@ impl Handler<StoreMessage> for Server {
     }
 }
 
-/////////////////////////
+//////////////////
 
 #[message(result = "Result<()>")]
 pub(crate) struct DeleteOldMessages;
@@ -279,5 +296,102 @@ impl Handler<DeleteOldMessages> for Server {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::get_default_config;
+    use api::api::TransactionType;
+    use hex::FromHex;
+    use rand::Rng;
+
+    #[tokio::test]
+    async fn test_server_service() {
+        let server = Server::from_registry().await.unwrap();
+        let config = get_default_config();
+        let _ = server.call(SetConfig(config)).await.unwrap().unwrap();
+
+        // start with an empty db
+        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
+
+        let address1 = Vec::from_hex("0d1a35092ca366f4ffc20af6db8b82b4").unwrap();
+        let address2 = Vec::from_hex("317f1a8df721522b04ac6fd6f751bcc5").unwrap();
+        let address3 = Vec::from_hex("8160a5d91533c3389e12d334f28f4eea").unwrap();
+
+        let tx1: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
+        let tx2: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
+        let tx3: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
+
+        let t1 = Utc::now().timestamp() as u64;
+        let net_id = 1;
+
+        let _ = server
+            .call(StoreMessage(StoreMessageRequest {
+                user_message: Some(UserMessage {
+                    net_id,
+                    created: t1,
+                    address: address1.clone(),
+                    transaction_type: TransactionType::VaultWithdraw as i32,
+                    transaction_data: tx1.clone(),
+                }),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let messages: Vec<UserMessage> = server
+            .call(GetMessages(GetMessagesRequest {
+                address: address1.clone(),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].address, address1);
+        assert_eq!(messages[0].created, t1);
+        assert_eq!(messages[0].transaction_data, tx1);
+        assert_eq!(messages[0].net_id, net_id);
+
+        let t2 = Utc::now().timestamp() as u64;
+
+        let _ = server
+            .call(StoreMessage(StoreMessageRequest {
+                user_message: Some(UserMessage {
+                    net_id,
+                    created: t2,
+                    address: address1.clone(),
+                    transaction_type: TransactionType::VaultWithdraw as i32,
+                    transaction_data: tx2.clone(),
+                }),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let messages: Vec<UserMessage> = server
+            .call(GetMessages(GetMessagesRequest {
+                address: address1.clone(),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].address, address1);
+        assert_eq!(messages[0].created, t1);
+        assert_eq!(messages[0].transaction_data, tx1);
+        assert_eq!(messages[0].net_id, net_id);
+
+        assert_eq!(messages[1].address, address1);
+        assert_eq!(messages[1].created, t2);
+        assert_eq!(messages[1].transaction_data, tx2);
+        assert_eq!(messages[1].net_id, net_id);
+
+        // cleanup
+        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
     }
 }

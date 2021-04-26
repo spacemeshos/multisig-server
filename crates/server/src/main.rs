@@ -77,7 +77,7 @@ async fn start_server(config: Config) -> Result<()> {
     let addr = format!("{}:{}", host, port).parse().unwrap();
     info!("starting grpc service on: {}...", addr);
 
-    tokio::task::spawn(async move {
+    tokio::spawn(async move {
         let res = tonic::transport::Server::builder()
             .add_service(MultiSigServiceServer::new(GrpcService::default()))
             .serve(addr)
