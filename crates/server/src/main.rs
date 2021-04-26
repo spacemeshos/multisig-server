@@ -3,7 +3,9 @@ extern crate log;
 extern crate api;
 extern crate hex;
 
-use crate::server::{DeleteOldMessages, Server, SetConfig, StartGrpcService};
+use crate::server::{DeleteOldMessages, Server, SetConfig};
+use crate::service::GrpcService;
+use api::api::multi_sig_service_server::MultiSigServiceServer;
 use chrono::prelude::*;
 use clap::{App, Arg};
 use config::Config;
@@ -35,7 +37,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let args = App::new("Spacemesh Multisig Message Server")
         .version("0.1.0")
         .author("Aviv Eyal <a@spacemesh.io>")
-        .about("Provides a basic service for users to post and get multisig messages")
+        .about("Provides a basic service for users to exchange multisig messages")
         .arg(
             Arg::with_name("config")
                 .short("c")
@@ -70,12 +72,22 @@ async fn start_server(config: Config) -> Result<()> {
 
     info!("server starting...");
 
-    server
-        .call(StartGrpcService {
-            port: config.get_int(PORT_CONFIG_KEY_NAME).unwrap() as u32,
-            host: config.get_str(HOST_CONFIG_KEY_NAME).unwrap(),
-        })
-        .await??;
+    let port = config.get_int(PORT_CONFIG_KEY_NAME)? as u32;
+    let host = config.get_str(HOST_CONFIG_KEY_NAME)?;
+    let addr = format!("{}:{}", host, port).parse().unwrap();
+    info!("starting grpc service on: {}...", addr);
+
+    tokio::task::spawn(async move {
+        let res = tonic::transport::Server::builder()
+            .add_service(MultiSigServiceServer::new(GrpcService::default()))
+            .serve(addr)
+            .await;
+        if res.is_err() {
+            panic!("grpc server stopped due to error: {:?}", res.err().unwrap());
+        } else {
+            info!("grpc server stopped");
+        }
+    });
 
     let db_cleanup_interval = config.get_int(DB_INTERVAL_CONFIG_KEY_NAME).unwrap() as u64;
 
@@ -151,6 +163,7 @@ fn init_logging() {
     builder.init();
 }
 
+/// Returns the default server configurations
 fn get_default_config() -> config::Config {
     let mut config = Config::default();
     config

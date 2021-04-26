@@ -1,5 +1,3 @@
-use crate::api::api::multi_sig_service_server::MultiSigServiceServer;
-use crate::service::GrpcService;
 use crate::MSG_RETENTION_DUR_CONFIG_KEY_NAME;
 use anyhow::{anyhow, bail, Result};
 use api::api::{GetMessagesRequest, StoreMessageRequest, UserMessage};
@@ -14,7 +12,6 @@ const MAX_ADDRESS_SIZE_BYTES: usize = 128;
 const MAX_TX_DATA_SIZE_BYTES: usize = 2048;
 const ALL_ADDRESSES_KEY: &str = "all_addresses";
 const DB_FILE_PATH: &str = "./data.bin";
-
 // new messages with creation time bigger than window relative to server time will be rejected
 const ACCEPTED_MESSAGES_TIME_WINDOW_SECS: i64 = 60 * 60 * 24;
 
@@ -32,7 +29,7 @@ impl Actor for Server {
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        info!("Server system service stopped.");
+        info!("Server system service stopped");
     }
 }
 
@@ -109,7 +106,7 @@ impl Handler<SetConfig> for Server {
     }
 }
 
-/////////////////////////////////////////////
+///////////////////////
 
 #[message(result = "Result<()>")]
 pub(crate) struct StoreMessage(pub(crate) StoreMessageRequest);
@@ -197,7 +194,7 @@ impl Handler<StoreMessage> for Server {
     }
 }
 
-////////////////////////////////
+/////////////////////////
 
 #[message(result = "Result<()>")]
 pub(crate) struct DeleteOldMessages;
@@ -221,7 +218,6 @@ impl Handler<DeleteOldMessages> for Server {
 
                     // addresses that should be removed from the db as they have no messages after messages deletion
                     let mut remove_addresses: HashSet<Vec<u8>> = HashSet::new();
-
                     for address in addresses.iter() {
                         match db.get(address.clone()) {
                             Ok(Some(data)) => {
@@ -285,33 +281,3 @@ impl Handler<DeleteOldMessages> for Server {
         Ok(())
     }
 }
-
-#[message(result = "Result<()>")]
-pub(crate) struct StartGrpcService {
-    pub(crate) port: u32,
-    pub(crate) host: String,
-}
-#[async_trait::async_trait]
-impl Handler<StartGrpcService> for Server {
-    async fn handle(&mut self, _ctx: &mut Context<Self>, msg: StartGrpcService) -> Result<()> {
-        let addr = format!("{}:{}", msg.host, msg.port).parse().unwrap();
-        info!("starting grpc service on: {}...", addr);
-
-        // todo: add a grpc health service
-        tokio::task::spawn(async move {
-            let res = tonic::transport::Server::builder()
-                .add_service(MultiSigServiceServer::new(GrpcService::default()))
-                .serve(addr)
-                .await;
-            if res.is_err() {
-                panic!("grpc server stopped due to error: {:?}", res.err().unwrap());
-            } else {
-                info!("grpc server stopped");
-            }
-        });
-
-        Ok(())
-    }
-}
-
-////////////////////////////////

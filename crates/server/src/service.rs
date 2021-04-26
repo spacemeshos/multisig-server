@@ -13,7 +13,7 @@ pub(crate) struct GrpcService {}
 
 impl Default for GrpcService {
     fn default() -> Self {
-        debug!("PosService grpc service started");
+        info!("Multisig message grpc service started");
         GrpcService {}
     }
 }
