@@ -10,7 +10,7 @@ use xactor::*;
 const MAX_ADDRESS_SIZE_BYTES: usize = 128;
 const MAX_TX_DATA_SIZE_BYTES: usize = 2048;
 const ALL_ADDRESSES_KEY: &str = "all_addresses";
-
+const DB_FILE_PATH: &str = "./data.bin";
 pub(crate) struct Server {
     config: Config,
     db: Option<DB>,
@@ -20,8 +20,7 @@ pub(crate) struct Server {
 impl Actor for Server {
     async fn started(&mut self, _ctx: &mut Context<Self>) -> Result<()> {
         info!("Server system service starting...");
-
-        self.db = Some(DB::open_default("./data.bin")?);
+        self.db = Some(DB::open_default(DB_FILE_PATH)?);
         Ok(())
     }
 
@@ -95,6 +94,9 @@ impl Handler<StoreMessage> for Server {
             bail!("invalid input: transaction data failed validation")
         }
 
+        // todo: verify that tx_data is signed by the private key matching one of the multi-sig addresses for an account
+        // or a smart contract by using the Spacemesh public API to get these addresses from a network.
+
         // input data is valid - store it
         // we store the tx_data in a vector indexed by address
         if let Some(db) = self.db.as_ref() {
@@ -127,8 +129,8 @@ impl Handler<StoreMessage> for Server {
                 Ok(None) => {
                     let mut addresses: HashSet<Vec<u8>> = HashSet::default();
                     addresses.insert(address);
-                    let encoded_messages: Vec<u8> = bincode::serialize(&addresses)?;
-                    db.put(ALL_ADDRESSES_KEY, encoded_messages)?;
+                    let encoded_addresses: Vec<u8> = bincode::serialize(&addresses)?;
+                    db.put(ALL_ADDRESSES_KEY, encoded_addresses)?;
                 }
                 Err(e) => {
                     error!("failed db get: {}", e);
@@ -173,3 +175,5 @@ impl Handler<StartGrpcService> for Server {
         Ok(())
     }
 }
+
+////////////////////////////////

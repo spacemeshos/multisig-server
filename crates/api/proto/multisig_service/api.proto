@@ -22,10 +22,11 @@ enum TransactionType {
 }
 
 message UserMessage {
-  uint64 created = 1; // timestamp, seconds sinc epoch
-  bytes address = 2; // vault address, and in future smart contract address or a multi-sig accounts db address.
-  TransactionType transaction_type = 3; // one of the supported types so receiver knows how to deserlize the binary data
-  bytes transaction_data = 4; // binary protobuf signed transaction data
+  uint32 net_id = 1; // Spacemesh network id. e.g. 0, 1, 2...
+  uint64 created = 2; // timestamp, seconds since epoch
+  bytes address = 3; // vault address, and in future smart contract address or a multi-sig accounts db address.
+  TransactionType transaction_type = 4; // one of the supported types so receiver knows how to deserlize the binary data
+  bytes transaction_data = 5; // binary protobuf signed transaction data
 }
 
 message StoreMessageRequest {

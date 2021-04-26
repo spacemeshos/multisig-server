@@ -1,16 +1,19 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UserMessage {
-    /// timestamp, seconds sinc epoch
-    #[prost(uint64, tag = "1")]
+    /// Spacemesh network id. e.g. 0, 1, 2...
+    #[prost(uint32, tag = "1")]
+    pub net_id: u32,
+    /// timestamp, seconds since epoch
+    #[prost(uint64, tag = "2")]
     pub created: u64,
     /// vault address, and in future smart contract address or a multi-sig accounts db address.
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "3")]
     pub address: ::prost::alloc::vec::Vec<u8>,
     /// one of the supported types so receiver knows how to deserlize the binary data
-    #[prost(enumeration = "TransactionType", tag = "3")]
+    #[prost(enumeration = "TransactionType", tag = "4")]
     pub transaction_type: i32,
     /// binary protobuf signed transaction data
-    #[prost(bytes = "vec", tag = "4")]
+    #[prost(bytes = "vec", tag = "5")]
     pub transaction_data: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
