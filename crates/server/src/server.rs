@@ -305,8 +305,6 @@ mod tests {
     use super::*;
     use crate::get_default_config;
     use api::api::TransactionType;
-    use hex::FromHex;
-    use rand::Rng;
 
     #[tokio::test]
     async fn test_server_service() {
@@ -317,13 +315,13 @@ mod tests {
         // start with an empty db
         let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
 
-        let address1 = Vec::from_hex("0d1a35092ca366f4ffc20af6db8b82b4").unwrap();
-        let address2 = Vec::from_hex("317f1a8df721522b04ac6fd6f751bcc5").unwrap();
-        let address3 = Vec::from_hex("8160a5d91533c3389e12d334f28f4eea").unwrap();
+        let address1: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
+        let address2: Vec<u8> = (0..48).map(|_| rand::random::<u8>()).collect();
+        let _address3: Vec<u8> = (0..24).map(|_| rand::random::<u8>()).collect();
 
         let tx1: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
-        let tx2: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
-        let tx3: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
+        let tx2: Vec<u8> = (0..1000).map(|_| rand::random::<u8>()).collect();
+        let tx3: Vec<u8> = (0..150).map(|_| rand::random::<u8>()).collect();
 
         let t1 = Utc::now().timestamp() as u64;
         let net_id = 1;
@@ -390,6 +388,36 @@ mod tests {
         assert_eq!(messages[1].created, t2);
         assert_eq!(messages[1].transaction_data, tx2);
         assert_eq!(messages[1].net_id, net_id);
+
+        let t3 = Utc::now().timestamp() as u64;
+
+        let _ = server
+            .call(StoreMessage(StoreMessageRequest {
+                user_message: Some(UserMessage {
+                    net_id,
+                    created: t3,
+                    address: address2.clone(),
+                    transaction_type: TransactionType::VaultWithdraw as i32,
+                    transaction_data: tx3.clone(),
+                }),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let messages: Vec<UserMessage> = server
+            .call(GetMessages(GetMessagesRequest {
+                address: address2.clone(),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].address, address2);
+        assert_eq!(messages[0].created, t2);
+        assert_eq!(messages[0].transaction_data, tx3);
+        assert_eq!(messages[0].net_id, net_id);
 
         // cleanup
         let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
