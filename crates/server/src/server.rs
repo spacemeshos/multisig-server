@@ -422,4 +422,75 @@ mod tests {
         // cleanup
         let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
     }
+
+    #[tokio::test]
+    async fn test_messages_pruning() {
+        let server = Server::from_registry().await.unwrap();
+
+        // set messages retention policy to 10 seconds
+        let mut config = get_default_config();
+        let c = config
+            .set_default(MSG_RETENTION_DUR_CONFIG_KEY_NAME, 10)
+            .unwrap()
+            .clone();
+        let _ = server.call(SetConfig(c)).await.unwrap().unwrap();
+
+        // start with an empty db
+        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
+
+        let address1: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
+
+        let tx1: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
+
+        let t1 = Utc::now().timestamp() as u64;
+        let net_id = 1;
+
+        let _ = server
+            .call(StoreMessage(StoreMessageRequest {
+                user_message: Some(UserMessage {
+                    net_id,
+                    created: t1,
+                    address: address1.clone(),
+                    transaction_type: TransactionType::VaultWithdraw as i32,
+                    transaction_data: tx1.clone(),
+                }),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let _ = server.call(DeleteOldMessages {}).await.unwrap().unwrap();
+
+        let messages: Vec<UserMessage> = server
+            .call(GetMessages(GetMessagesRequest {
+                address: address1.clone(),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].address, address1);
+        assert_eq!(messages[0].created, t1);
+        assert_eq!(messages[0].transaction_data, tx1);
+        assert_eq!(messages[0].net_id, net_id);
+
+        // sleep for 11 seconds
+        tokio::time::sleep(tokio::time::Duration::from_secs(11)).await;
+
+        let _ = server.call(DeleteOldMessages {}).await.unwrap().unwrap();
+
+        let messages: Vec<UserMessage> = server
+            .call(GetMessages(GetMessagesRequest {
+                address: address1.clone(),
+            }))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(messages.len(), 0);
+
+        // cleanup
+        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
+    }
 }
