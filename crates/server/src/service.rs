@@ -1,5 +1,4 @@
 use crate::api::api::multi_sig_service_server::MultiSigService;
-
 use crate::server::{GetMessages, Server, StoreMessage};
 use anyhow::Result;
 use api::api::{
@@ -7,8 +6,8 @@ use api::api::{
 };
 use tonic::{Request, Response, Status};
 use xactor::Service;
-// use xactor::*;
 
+/// GrpcService implements MultiSigService
 #[derive(Debug)]
 pub(crate) struct GrpcService {}
 

@@ -15,6 +15,9 @@ const MAX_TX_DATA_SIZE_BYTES: usize = 2048;
 const ALL_ADDRESSES_KEY: &str = "all_addresses";
 const DB_FILE_PATH: &str = "./data.bin";
 
+// new messages with creation time bigger than window relative to server time will be rejected
+const ACCEPTED_MESSAGES_TIME_WINDOW_SECS: i64 = 60 * 60 * 24;
+
 pub(crate) struct Server {
     config: Config,
     db: Option<DB>,
@@ -126,10 +129,14 @@ impl Handler<StoreMessage> for Server {
             bail!("invalid input: address size failed validation")
         }
 
-        // todo: ensure address != ALL_ADDRESSES_KEY here
+        // todo: ensure address != ALL_ADDRESSES_KEY here to prevent corruption of addresses index by malicious users
 
-        // todo: verify t is not too much in the future compared to server wall time
-        let _t = user_msg.created;
+        // verify that message creation time is not outside of the server acceptable time window
+        let now = Utc::now().timestamp() as i64;
+        let t = user_msg.created as i64;
+        if i64::abs(now - t) > ACCEPTED_MESSAGES_TIME_WINDOW_SECS {
+            bail!("invalid input: message creation time outside of acceptable server time window")
+        }
 
         let tx_data = &user_msg.transaction_data;
         if tx_data.is_empty() || tx_data.len() > MAX_TX_DATA_SIZE_BYTES {
