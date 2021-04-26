@@ -14,6 +14,7 @@ const MAX_TX_DATA_SIZE_BYTES: usize = 2048;
 const ALL_ADDRESSES_KEY: &str = "all_addresses";
 const DB_FILE_PATH: &str = "./data.bin";
 
+// todo: make this server configurable
 const KEEP_DURATION_SECS: u64 = 1_814_400; // 21 days in seconds
 
 pub(crate) struct Server {

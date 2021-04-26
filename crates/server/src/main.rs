@@ -3,7 +3,7 @@ extern crate log;
 extern crate api;
 extern crate hex;
 
-use crate::server::{Server, SetConfig, StartGrpcService};
+use crate::server::{DeleteOldMessages, Server, SetConfig, StartGrpcService};
 use chrono::prelude::*;
 use clap::{App, Arg};
 use config::Config;
@@ -12,7 +12,8 @@ use env_logger::Builder;
 use log::*;
 use std::env;
 use std::io::Write;
-use tokio::signal;
+use tokio::time::Duration;
+use tokio::{signal, time};
 use xactor::*;
 
 mod server;
@@ -20,6 +21,8 @@ mod service;
 
 const DEFAULT_GRPC_PORT: u32 = 6667;
 const DEFAULT_HOST: &str = "[::1]";
+// todo: move to config
+const DB_CLEANUP_INTERVAL_SECS: u64 = 60 * 60 * 24 * 10;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -69,6 +72,26 @@ async fn start_server(config: Config) -> Result<()> {
             host: config.get_str("host").unwrap(),
         })
         .await??;
+
+    // spawn the db cleanup task on interval
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(DB_CLEANUP_INTERVAL_SECS));
+        loop {
+            interval.tick().await;
+            match Server::from_registry().await {
+                Err(e) => {
+                    error!("failed to get server system service: {}", e);
+                }
+                Ok(server) => {
+                    if let Err(e) = server.call(DeleteOldMessages {}).await {
+                        error!("failed to delete old messages: {}", e)
+                    } else {
+                        info!("db cleanup task executed without errors");
+                    }
+                }
+            }
+        }
+    });
 
     info!("server running");
     Ok(())
