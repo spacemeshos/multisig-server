@@ -21,7 +21,6 @@ mod service;
 
 const DEFAULT_GRPC_PORT: u32 = 6667;
 const DEFAULT_HOST: &str = "[::1]";
-// todo: move to config
 const DB_CLEANUP_INTERVAL_SECS: u64 = 60 * 60 * 24 * 10;
 
 #[tokio::main]
@@ -73,22 +72,30 @@ async fn start_server(config: Config) -> Result<()> {
         })
         .await??;
 
+    let db_cleanup_interval = config.get_int("db_cleanup_interval").unwrap() as u64;
+
     // spawn the db cleanup task on interval
     tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(DB_CLEANUP_INTERVAL_SECS));
+        let mut interval = time::interval(Duration::from_secs(db_cleanup_interval));
         loop {
             interval.tick().await;
             match Server::from_registry().await {
                 Err(e) => {
                     error!("failed to get server system service: {}", e);
                 }
-                Ok(server) => {
-                    if let Err(e) = server.call(DeleteOldMessages {}).await {
-                        error!("failed to delete old messages: {}", e)
-                    } else {
-                        info!("db cleanup task executed without errors");
+                Ok(server) => match server.call(DeleteOldMessages {}).await {
+                    Err(e) => {
+                        error!("failed to call service method: {}", e)
                     }
-                }
+                    Ok(res) => match res {
+                        Err(e) => {
+                            error!("db cleanup task error: {}", e);
+                        }
+                        Ok(_) => {
+                            info!("db cleanup task completed without errors");
+                        }
+                    },
+                },
             }
         }
     });
@@ -145,6 +152,8 @@ fn get_default_config() -> config::Config {
         .set_default("port", DEFAULT_GRPC_PORT.to_string())
         .unwrap()
         .set_default("host", DEFAULT_HOST)
+        .unwrap()
+        .set_default("db_cleanup_interval", DB_CLEANUP_INTERVAL_SECS.to_string())
         .unwrap()
         .clone()
 }
