@@ -1,8 +1,10 @@
 use crate::api::api::multi_sig_service_server::MultiSigServiceServer;
 use crate::service::GrpcService;
 use anyhow::{anyhow, bail, Result};
-use api::api::StoreMessageRequest;
+use api::api::{StoreMessageRequest, UserMessage};
+use chrono::prelude::*;
 use config::Config;
+use prost::Message;
 use rocksdb::DB;
 use std::collections::HashSet;
 use xactor::*;
@@ -11,6 +13,9 @@ const MAX_ADDRESS_SIZE_BYTES: usize = 128;
 const MAX_TX_DATA_SIZE_BYTES: usize = 2048;
 const ALL_ADDRESSES_KEY: &str = "all_addresses";
 const DB_FILE_PATH: &str = "./data.bin";
+
+const KEEP_DURATION_SECS: u64 = 1_814_400; // 21 days in seconds
+
 pub(crate) struct Server {
     config: Config,
     db: Option<DB>,
@@ -79,7 +84,7 @@ impl Handler<StoreMessage> for Server {
             .user_message
             .ok_or_else(|| anyhow!("invalid input: missing user message"))?;
 
-        let address = user_msg.address;
+        let address = &user_msg.address;
         if address.is_empty() || address.len() > MAX_ADDRESS_SIZE_BYTES {
             bail!("invalid input: address size failed validation")
         }
@@ -89,7 +94,7 @@ impl Handler<StoreMessage> for Server {
         // todo: verify t is not too much in the future compared to server wall time
         let _t = user_msg.created;
 
-        let tx_data = user_msg.transaction_data;
+        let tx_data = &user_msg.transaction_data;
         if tx_data.is_empty() || tx_data.len() > MAX_TX_DATA_SIZE_BYTES {
             bail!("invalid input: transaction data failed validation")
         }
@@ -97,19 +102,21 @@ impl Handler<StoreMessage> for Server {
         // todo: verify that tx_data is signed by the private key matching one of the multi-sig addresses for an account
         // or a smart contract by using the Spacemesh public API to get these addresses from a network.
 
+        let mut user_msg_bin: Vec<u8> = Vec::with_capacity(user_msg.encoded_len());
+        user_msg.encode(&mut user_msg_bin)?;
+
         // input data is valid - store it
-        // we store the tx_data in a vector indexed by address
+        // we store UserMessage in a vector indexed by address
         if let Some(db) = self.db.as_ref() {
             match db.get(address.clone()) {
                 Ok(Some(data)) => {
                     let mut messages: Vec<Vec<u8>> = bincode::deserialize(data.as_ref())?;
-                    messages.push(tx_data);
+                    messages.push(user_msg_bin);
                     let encoded_messages: Vec<u8> = bincode::serialize(&messages)?;
                     db.put(address.clone(), encoded_messages)?;
                 }
                 Ok(None) => {
-                    let mut messages: Vec<Vec<u8>> = vec![Vec::new()];
-                    messages.push(tx_data);
+                    let messages: Vec<Vec<u8>> = vec![user_msg_bin];
                     let encoded_messages: Vec<u8> = bincode::serialize(&messages)?;
                     db.put(address.clone(), encoded_messages)?;
                 }
@@ -122,13 +129,13 @@ impl Handler<StoreMessage> for Server {
             match db.get(ALL_ADDRESSES_KEY) {
                 Ok(Some(data)) => {
                     let mut addresses: HashSet<Vec<u8>> = bincode::deserialize(data.as_ref())?;
-                    addresses.insert(address);
+                    addresses.insert(address.clone());
                     let encoded_addresses: Vec<u8> = bincode::serialize(&addresses)?;
                     db.put(ALL_ADDRESSES_KEY, encoded_addresses)?;
                 }
                 Ok(None) => {
                     let mut addresses: HashSet<Vec<u8>> = HashSet::default();
-                    addresses.insert(address);
+                    addresses.insert(address.clone());
                     let encoded_addresses: Vec<u8> = bincode::serialize(&addresses)?;
                     db.put(ALL_ADDRESSES_KEY, encoded_addresses)?;
                 }
@@ -147,6 +154,88 @@ impl Handler<StoreMessage> for Server {
 }
 
 ////////////////////////////////
+
+#[message(result = "Result<()>")]
+pub(crate) struct DeleteOldMessages;
+
+/// Delete old messages from the service
+#[async_trait::async_trait]
+impl Handler<DeleteOldMessages> for Server {
+    async fn handle(&mut self, _ctx: &mut Context<Self>, _msg: DeleteOldMessages) -> Result<()> {
+        info!("delete old messages task...");
+
+        let now = Utc::now().timestamp() as u64;
+
+        if let Some(db) = self.db.as_ref() {
+            match db.get(ALL_ADDRESSES_KEY) {
+                Ok(Some(data)) => {
+                    let mut addresses: HashSet<Vec<u8>> = bincode::deserialize(data.as_ref())?;
+
+                    // addresses that should be removed from the db as they have no messages after messages deletion
+                    let mut remove_addresses: HashSet<Vec<u8>> = HashSet::new();
+
+                    for address in addresses.iter() {
+                        match db.get(address.clone()) {
+                            Ok(Some(data)) => {
+                                let messages: Vec<Vec<u8>> = bincode::deserialize(data.as_ref())?;
+                                // only keep messages that are not too old
+                                let new_messages = messages
+                                    .into_iter()
+                                    .filter(|m| {
+                                        // we can unwrap because we ensured that only UserMessages were inserted previously
+                                        let user_msg: UserMessage =
+                                            UserMessage::decode(m.as_slice()).unwrap();
+                                        user_msg.created >= now - KEEP_DURATION_SECS
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                if new_messages.is_empty() {
+                                    // no messages for this address - delete the address from the db
+                                    db.delete(address.clone())?;
+                                    remove_addresses.insert(address.clone());
+                                } else {
+                                    // store messages for this address excluding the old deleted messages
+                                    let encoded_messages: Vec<u8> =
+                                        bincode::serialize(&new_messages)?;
+                                    db.put(address.clone(), encoded_messages)?;
+                                }
+                            }
+                            Ok(None) => {
+                                warn!("no messages found for address in index {:?}", address)
+                            }
+                            Err(e) => {
+                                error!("failed db get: {}", e);
+                                bail!("internal data error")
+                            }
+                        }
+                    }
+
+                    // update the addresses global index based on removed addresses
+                    if !remove_addresses.is_empty() {
+                        for a in remove_addresses.iter() {
+                            addresses.remove(a);
+                        }
+                        let encoded_addresses: Vec<u8> = bincode::serialize(&addresses)?;
+                        db.put(ALL_ADDRESSES_KEY, encoded_addresses)?;
+                    }
+                }
+                Ok(None) => {
+                    info!("No messages stored");
+                    return Ok(());
+                }
+                Err(e) => {
+                    error!("failed db get: {}", e);
+                    bail!("internal data error")
+                }
+            }
+        } else {
+            error!("internal state error - db is none");
+            bail!("internal data error")
+        }
+
+        Ok(())
+    }
+}
 
 #[message(result = "Result<()>")]
 pub(crate) struct StartGrpcService {
