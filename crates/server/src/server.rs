@@ -306,14 +306,17 @@ mod tests {
     use crate::get_default_config;
     use api::api::TransactionType;
 
+    fn delete_db() {
+        let _ = std::fs::remove_dir_all(DB_FILE_PATH);
+    }
+
     #[tokio::test]
     async fn test_server_service() {
+        delete_db();
+
         let server = Server::from_registry().await.unwrap();
         let config = get_default_config();
         let _ = server.call(SetConfig(config)).await.unwrap().unwrap();
-
-        // start with an empty db
-        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
 
         let address1: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
         let address2: Vec<u8> = (0..48).map(|_| rand::random::<u8>()).collect();
@@ -425,6 +428,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_messages_pruning() {
+        delete_db();
+
         let server = Server::from_registry().await.unwrap();
 
         // set messages retention policy to 10 seconds
@@ -434,14 +439,8 @@ mod tests {
             .unwrap()
             .clone();
         let _ = server.call(SetConfig(c)).await.unwrap().unwrap();
-
-        // start with an empty db
-        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
-
         let address1: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
-
         let tx1: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
-
         let t1 = Utc::now().timestamp() as u64;
         let net_id = 1;
 
@@ -460,7 +459,6 @@ mod tests {
             .unwrap();
 
         let _ = server.call(DeleteOldMessages {}).await.unwrap().unwrap();
-
         let messages: Vec<UserMessage> = server
             .call(GetMessages(GetMessagesRequest {
                 address: address1.clone(),
@@ -479,7 +477,6 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_secs(11)).await;
 
         let _ = server.call(DeleteOldMessages {}).await.unwrap().unwrap();
-
         let messages: Vec<UserMessage> = server
             .call(GetMessages(GetMessagesRequest {
                 address: address1.clone(),
