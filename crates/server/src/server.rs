@@ -10,7 +10,7 @@ use xactor::*;
 
 const MAX_ADDRESS_SIZE_BYTES: usize = 128;
 const MAX_TX_DATA_SIZE_BYTES: usize = 2048;
-const ALL_ADDRESSES_KEY: &str = "all_addresses";
+const ALL_ADDRESSES_KEY: &[u8] = b"all_addresses";
 const DB_FILE_PATH: &str = "./data_store";
 // new messages with creation time bigger than window relative to server time will be rejected
 const ACCEPTED_MESSAGES_TIME_WINDOW_SECS: i64 = 60 * 60 * 24;
@@ -143,7 +143,9 @@ impl Handler<StoreMessage> for Server {
             bail!("invalid input: address size failed validation")
         }
 
-        // todo: ensure address != ALL_ADDRESSES_KEY here to prevent corruption of addresses index by malicious users
+        if *address == *ALL_ADDRESSES_KEY {
+            bail!("invalid input: address failed validation")
+        }
 
         // verify that message creation time is not outside of the server acceptable time window
         let now = Utc::now().timestamp() as i64;
@@ -305,14 +307,24 @@ mod tests {
     use super::*;
     use crate::get_default_config;
     use api::api::TransactionType;
+    use log::LevelFilter;
+    use serial_test::*;
 
-    fn delete_db() {
+    fn setup_test() {
+        // enable logging
+        let _ = env_logger::builder()
+            .is_test(false)
+            .filter_level(LevelFilter::Info)
+            .try_init();
+
+        // delete the db
         let _ = std::fs::remove_dir_all(DB_FILE_PATH);
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_server_service() {
-        delete_db();
+        setup_test();
 
         let server = Server::from_registry().await.unwrap();
         let config = get_default_config();
@@ -427,9 +439,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_messages_pruning() {
-        delete_db();
-
+    #[serial]
+    async fn verify_messages_pruning() {
+        setup_test();
         let server = Server::from_registry().await.unwrap();
 
         // set messages retention policy to 10 seconds
@@ -486,6 +498,124 @@ mod tests {
             .unwrap();
 
         assert_eq!(messages.len(), 0);
+
+        // cleanup
+        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn reject_large_messages() {
+        setup_test();
+
+        let server = Server::from_registry().await.unwrap();
+        let _ = server
+            .call(SetConfig(get_default_config()))
+            .await
+            .unwrap()
+            .unwrap();
+        let address1: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
+        let tx1: Vec<u8> = (0..MAX_TX_DATA_SIZE_BYTES + 1)
+            .map(|_| rand::random::<u8>())
+            .collect();
+        let res = server
+            .call(StoreMessage(StoreMessageRequest {
+                user_message: Some(UserMessage {
+                    net_id: 1,
+                    created: Utc::now().timestamp() as u64,
+                    address: address1,
+                    transaction_type: TransactionType::VaultWithdraw as i32,
+                    transaction_data: tx1,
+                }),
+            }))
+            .await
+            .unwrap();
+
+        assert!(res.is_err());
+
+        // cleanup
+        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn reject_badly_timed_message() {
+        setup_test();
+        let server = Server::from_registry().await.unwrap();
+        let _ = server
+            .call(SetConfig(get_default_config()))
+            .await
+            .unwrap()
+            .unwrap();
+        let address1: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
+        let tx1: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
+
+        // set time in past, before acceptable time window
+        let t = Utc::now().timestamp() as u64 - (ACCEPTED_MESSAGES_TIME_WINDOW_SECS as u64) - 1;
+
+        let res = server
+            .call(StoreMessage(StoreMessageRequest {
+                user_message: Some(UserMessage {
+                    net_id: 1,
+                    created: t,
+                    address: address1.clone(),
+                    transaction_type: TransactionType::VaultWithdraw as i32,
+                    transaction_data: tx1.clone(),
+                }),
+            }))
+            .await
+            .unwrap();
+
+        assert!(res.is_err());
+
+        // set time in the future beyond acceptance window
+        let t = Utc::now().timestamp() as u64 + (ACCEPTED_MESSAGES_TIME_WINDOW_SECS as u64) + 1;
+
+        let res = server
+            .call(StoreMessage(StoreMessageRequest {
+                user_message: Some(UserMessage {
+                    net_id: 1,
+                    created: t,
+                    address: address1.clone(),
+                    transaction_type: TransactionType::VaultWithdraw as i32,
+                    transaction_data: tx1.clone(),
+                }),
+            }))
+            .await
+            .unwrap();
+
+        assert!(res.is_err());
+
+        // cleanup
+        let _ = server.call(DeleteDb {}).await.unwrap().unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[serial]
+    async fn reject_malicious_address() {
+        setup_test();
+        let server = Server::from_registry().await.unwrap();
+        let _ = server
+            .call(SetConfig(get_default_config()))
+            .await
+            .unwrap()
+            .unwrap();
+        let address1: Vec<u8> = Vec::from(ALL_ADDRESSES_KEY);
+        let tx1: Vec<u8> = (0..1024).map(|_| rand::random::<u8>()).collect();
+        let res = server
+            .call(StoreMessage(StoreMessageRequest {
+                user_message: Some(UserMessage {
+                    net_id: 1,
+                    created: Utc::now().timestamp() as u64,
+                    address: address1,
+                    transaction_type: TransactionType::VaultWithdraw as i32,
+                    transaction_data: tx1,
+                }),
+            }))
+            .await
+            .unwrap();
+
+        assert!(res.is_err());
 
         // cleanup
         let _ = server.call(DeleteDb {}).await.unwrap().unwrap();

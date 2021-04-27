@@ -2,6 +2,7 @@
 extern crate log;
 extern crate api;
 extern crate hex;
+extern crate serial_test;
 
 use crate::server::{DeleteOldMessages, Server, SetConfig};
 use crate::service::GrpcService;

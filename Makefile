@@ -1,7 +1,6 @@
 COLOR ?= auto # Valid COLOR options: {always, auto, never}
 CARGO = cargo --color $(COLOR)
-CARGO_TEST = cargo test --test server_tests test --all-features --manifest-path ./crates/multisig-service/Cargo.toml -- --nocapture --show-output --test-threads=1
-
+CARGO_TEST = cargo test --bin multisig-service server::tests --no-fail-fast --all-features --color=always --manifest-path ./crates/server/Cargo.toml -- --nocapture --show-output --test-threads=1
 
 .PHONY: all bench build check clean doc install publish run test update format
 
